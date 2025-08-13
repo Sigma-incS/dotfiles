@@ -1,0 +1,48 @@
+#!/bin/bash
+# Usage: gh-upload <repo> <folder> <files...>
+# Example: gh-upload tmux tmux-config ~/.tmux.conf ~/.tmux/plugins.conf
+
+USERNAME="$(gh api user --jq .login)"
+
+if [ $# -lt 3 ]; then
+    echo "Usage: $0 <repo> <folder> <files...>"
+    exit 1
+fi
+
+REPO="$1"
+FOLDER="$2"
+shift 2  # Remove first two args so $@ is just files
+
+# Function to check if repo exists
+repo_exists() {
+    gh repo view "$USERNAME/$REPO" &>/dev/null
+}
+
+# Create repo if missing
+if ! repo_exists; then
+    echo "Repository '$REPO' does not exist."
+    read -p "Make it private? (y/N): " priv
+    if [[ "$priv" =~ ^[Yy]$ ]]; then
+        gh repo create "$REPO" --private >/dev/null
+        echo "✓ Created private repo $REPO"
+    else
+        gh repo create "$REPO" --public >/dev/null
+        echo "✓ Created public repo $REPO"
+    fi
+fi
+
+# Upload files
+for FILE in "$@"; do
+    if [ ! -f "$FILE" ]; then
+        echo "⚠ File not found: $FILE"
+        continue
+    fi
+    b64=$(base64 -w 0 "$FILE")
+    gh api \
+      --method PUT \
+      -H "Accept: application/vnd.github+json" \
+      "/repos/$USERNAME/$REPO/contents/$FOLDER/$(basename "$FILE")" \
+      -f message="Add $(basename "$FILE") to $FOLDER" \
+      -f content="$b64" >/dev/null
+    echo "✓ Uploaded $(basename "$FILE") → $REPO/$FOLDER/"
+done
